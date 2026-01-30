@@ -35,24 +35,32 @@ const agentTypeSchema = z.object({
     command: z.string().optional(),
     args: z.array(z.string()).optional(),
     env: z.record(z.string()).optional(),
-    defaultRoot: z.string().optional(),
-    defaultDirectories: z.array(z.string()).optional(),
 });
-const agentInstanceSchema = z.object({
+const nodeBaseSchema = z.object({
     alias: z.string(),
-    type: z.string(),
     input: z.union([z.literal('stdin'), z.string()]).optional(),
     root: z.string().optional(),
     directories: z.array(z.string()).optional(),
-    params: z.record(z.unknown()).optional(),
     env: z.record(z.string()).optional(),
+    depends_on: z.array(z.string()).optional(),
 });
+const agentInstanceSchema = nodeBaseSchema.extend({
+    type: z.string(),
+    kind: z.literal('agent').optional(),
+});
+const commandInstanceSchema = nodeBaseSchema.extend({
+    kind: z.literal('command'),
+    command: z.string(),
+    args: z.array(z.string()).optional(),
+    type: z.string().optional(),
+});
+const stageNodeSchema = z.union([agentInstanceSchema, commandInstanceSchema]);
 const stageSchema = z.object({
     alias: z.string(),
     directories: z
         .record(z.union([directorySchema, stageDirectoryRefSchema]))
         .optional(),
-    agents: z.array(agentInstanceSchema),
+    agents: z.array(stageNodeSchema),
 });
 const pipelineSchema = z.object({
     version: z.string().optional(),
@@ -62,10 +70,48 @@ const pipelineSchema = z.object({
     agent_types: z.record(agentTypeSchema).optional(),
     stages: z.array(stageSchema),
 });
+function validateDirectoryAliases(directories, context) {
+    if (!directories)
+        return;
+    for (const [alias, spec] of Object.entries(directories)) {
+        if (alias === 'root') {
+            throw new Error(`${context}: directory alias 'root' is reserved.`);
+        }
+        if ('from' in spec) {
+            if (spec.from === 'root') {
+                throw new Error(`${context}: directory ref '${alias}' cannot use reserved alias 'root'.`);
+            }
+            continue;
+        }
+        if (spec.alias !== alias) {
+            throw new Error(`${context}: directory key '${alias}' does not match spec.alias '${spec.alias}'.`);
+        }
+        if (spec.alias === 'root') {
+            throw new Error(`${context}: directory alias 'root' is reserved.`);
+        }
+    }
+}
+function validatePipeline(pipeline) {
+    validateDirectoryAliases(pipeline.directories, 'Pipeline directories');
+    for (const stage of pipeline.stages) {
+        validateDirectoryAliases(stage.directories, `Stage '${stage.alias}' directories`);
+        if (!stage.directories)
+            continue;
+        for (const [alias, spec] of Object.entries(stage.directories)) {
+            if ('from' in spec) {
+                const ref = spec.from;
+                if (!pipeline.directories || !pipeline.directories[ref]) {
+                    throw new Error(`Stage '${stage.alias}' directory '${alias}' references unknown global alias '${ref}'.`);
+                }
+            }
+        }
+    }
+}
 export async function loadPipelineFile(filePath) {
     const raw = await fs.readFile(filePath, 'utf8');
     const parsed = parseByExtension(raw, filePath);
     const result = pipelineSchema.parse(parsed);
+    validatePipeline(result);
     return result;
 }
 export function parseByExtension(raw, filePath) {

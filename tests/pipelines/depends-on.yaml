@@ -1,0 +1,27 @@
+name: depends-on-gating
+version: "0.1"
+
+directories:
+  repo:
+    alias: repo
+    kind: path
+    path: .
+
+stages:
+  - alias: gate
+    agents:
+      - alias: seed
+        kind: command
+        command: node
+        args:
+          - -e
+          - 'process.stdout.write("ready")'
+        root: repo
+        directories: [repo]
+      - alias: gated
+        kind: command
+        input: stdin
+        depends_on: [seed]
+        command: cat
+        root: repo
+        directories: [repo]

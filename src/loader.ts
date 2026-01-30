@@ -6,10 +6,12 @@ import { z } from 'zod';
 import {
   AgentInstance,
   AgentType,
+  CommandInstance,
   DirectorySpec,
   PipelineFile,
   StageDirectoryRef,
   StageSpec,
+  StageNode,
   ResolvedAgentType,
 } from './types.js';
 
@@ -49,21 +51,35 @@ const agentTypeSchema: z.ZodType<AgentType> = z.object({
   env: z.record(z.string()).optional(),
 });
 
-const agentInstanceSchema: z.ZodType<AgentInstance> = z.object({
+const nodeBaseSchema = z.object({
   alias: z.string(),
-  type: z.string(),
   input: z.union([z.literal('stdin'), z.string()]).optional(),
   root: z.string().optional(),
   directories: z.array(z.string()).optional(),
   env: z.record(z.string()).optional(),
+  depends_on: z.array(z.string()).optional(),
 });
+
+const agentInstanceSchema: z.ZodType<AgentInstance> = nodeBaseSchema.extend({
+  type: z.string(),
+  kind: z.literal('agent').optional(),
+});
+
+const commandInstanceSchema: z.ZodType<CommandInstance> = nodeBaseSchema.extend({
+  kind: z.literal('command'),
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  type: z.string().optional(),
+});
+
+const stageNodeSchema: z.ZodType<StageNode> = z.union([agentInstanceSchema, commandInstanceSchema]);
 
 const stageSchema: z.ZodType<StageSpec> = z.object({
   alias: z.string(),
   directories: z
     .record(z.union([directorySchema, stageDirectoryRefSchema]))
     .optional(),
-  agents: z.array(agentInstanceSchema),
+  agents: z.array(stageNodeSchema),
 });
 
 const pipelineSchema: z.ZodType<PipelineFile> = z.object({

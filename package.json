@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json && node ./scripts/copy-assets.mjs",
     "dev": "ts-node --esm src/index.ts",
     "lint": "echo 'No lint configured'",
-    "sample": "node dist/index.js examples/pipeline.yaml --dry-run"
+    "sample": "node dist/index.js examples/pipeline.yaml --dry-run",
+    "smoke": "npm run build && node dist/index.js tests/pipelines/command-json.yaml"
   },
   "dependencies": {
     "commander": "^11.1.0",

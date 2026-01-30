@@ -36,14 +36,31 @@ export interface AgentType {
   env?: Record<string, string>;
 }
 
-export interface AgentInstance {
+export type NodeKind = 'agent' | 'command';
+
+export interface BaseNode {
   alias: string;
-  type: string;
   input?: 'stdin' | string;
   root?: string;
   directories?: string[];
   env?: Record<string, string>;
+  depends_on?: string[];
+  kind?: NodeKind;
 }
+
+export interface AgentInstance extends BaseNode {
+  type: string;
+  kind?: 'agent';
+}
+
+export interface CommandInstance extends BaseNode {
+  kind: 'command';
+  command: string;
+  args?: string[];
+  type?: string;
+}
+
+export type StageNode = AgentInstance | CommandInstance;
 
 export interface StageDirectoryRef {
   from: string;
@@ -52,7 +69,7 @@ export interface StageDirectoryRef {
 export interface StageSpec {
   alias: string;
   directories?: Record<string, DirectorySpec | StageDirectoryRef>;
-  agents: AgentInstance[];
+  agents: StageNode[];
 }
 
 export interface PipelineFile {

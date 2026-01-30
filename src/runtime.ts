@@ -1,5 +1,6 @@
 import { prepareDirectory } from './directories.js';
 import { runAgent } from './agentRunner.js';
+import { runCommand } from './commandRunner.js';
 import {
   AgentExecutionContext,
   ExecutionOptions,
@@ -7,7 +8,7 @@ import {
   DirectorySpec,
   PreparedDirectory,
   ResolvedAgentType,
-  AgentInstance,
+  StageNode,
 } from './types.js';
 
 interface ExecutePipelineOptions extends ExecutionOptions {
@@ -24,7 +25,8 @@ export async function executePipeline(options: ExecutePipelineOptions) {
   const outputs: Record<string, string> = {};
 
   try {
-    assertUniqueAgentAliases(pipeline);
+    const aliasMap = collectNodeAliases(pipeline);
+    validateNodeReferences(pipeline, aliasMap);
     for (const stage of pipeline.stages) {
       const stageSpecs = stage.directories ?? {};
       const requiredAliases = collectDirectoryAliases(stage.agents);
@@ -97,82 +99,173 @@ function resolveDirectorySpec(
   return undefined;
 }
 
-function collectDirectoryAliases(agents: AgentInstance[]): Set<string> {
+function collectDirectoryAliases(nodes: StageNode[]): Set<string> {
   const aliases = new Set<string>();
-  for (const agent of agents) {
-    if (agent.root) aliases.add(agent.root);
-    (agent.directories ?? []).forEach((d) => aliases.add(d));
+  for (const node of nodes) {
+    if (node.root) aliases.add(node.root);
+    (node.directories ?? []).forEach((d) => aliases.add(d));
   }
   return aliases;
 }
 
 async function executeStage(
   stageAlias: string,
-  agents: AgentInstance[],
+  nodes: StageNode[],
   agentTypes: Record<string, ResolvedAgentType>,
   directoryMap: Record<string, PreparedDirectory>,
   outputs: Record<string, string>,
   pipelineInput: string,
   options: ExecutionOptions
 ): Promise<Record<string, string>> {
-  const pending = [...agents];
+  const pending = new Map<string, StageNode>(nodes.map((node) => [node.alias, node]));
+  const running = new Map<
+    string,
+    { promise: Promise<{ alias: string; output: string }>; controller: AbortController }
+  >();
   const stageOutputs: Record<string, string> = {};
-  let progress = true;
+  const ctx: AgentExecutionContext = {
+    pipelineInput,
+    directoryMap,
+    agentTypes,
+    cwd: options.cwd,
+  };
 
-  while (pending.length && progress) {
-    progress = false;
-    for (let i = 0; i < pending.length; i++) {
-      const agent = pending[i];
-      const resolvedInput = resolveInput(agent, { ...outputs, ...stageOutputs }, pipelineInput);
-      if (resolvedInput === null) continue; // dependency not ready
+  while (pending.size || running.size) {
+    const outputsSnapshot = { ...outputs, ...stageOutputs };
+    for (const [alias, node] of pending) {
+      const resolvedInput = resolveInput(node, outputsSnapshot, pipelineInput);
+      if (resolvedInput === null) continue;
+      if (!areDependenciesReady(node, outputsSnapshot)) continue;
 
-      const agentType = agentTypes[agent.type];
-      if (!agentType) throw new Error(`Agent type '${agent.type}' not found for agent '${agent.alias}'.`);
-      const ctx: AgentExecutionContext = {
-        pipelineInput,
-        directoryMap,
-        agentTypes,
-        cwd: options.cwd,
-      };
-      const output = await runAgent({ ...agent, stageAlias }, agentType, resolvedInput, ctx, options);
-      stageOutputs[agent.alias] = output;
-      pending.splice(i, 1);
-      i--;
-      progress = true;
-      if (options.verbose) {
-        console.error(`[codex-swarm] completed agent ${agent.alias}`);
-      }
+      const controller = new AbortController();
+      const runPromise = runNode(node, stageAlias, resolvedInput, ctx, options, controller.signal)
+        .then((output) => ({ alias, output }))
+        .catch((err) => {
+          throw { alias, err };
+        });
+      running.set(alias, { promise: runPromise, controller });
+      pending.delete(alias);
     }
-  }
 
-  if (pending.length) {
-    const names = pending.map((a) => a.alias).join(', ');
-    throw new Error(`Could not resolve inputs for agents: ${names}. Check for circular dependencies.`);
+    if (running.size === 0) {
+      const names = [...pending.keys()].join(', ');
+      throw new Error(
+        `Stage '${stageAlias}' is deadlocked. Remaining nodes: ${names}. Check for depends_on/input cycles.`
+      );
+    }
+
+    try {
+      const { alias, output } = await Promise.race([...running.values()].map((entry) => entry.promise));
+      running.delete(alias);
+      stageOutputs[alias] = output;
+      if (options.verbose) {
+        console.error(`[codex-swarm] completed node ${alias}`);
+      }
+    } catch (err: any) {
+      for (const entry of running.values()) {
+        entry.controller.abort();
+      }
+      await Promise.allSettled([...running.values()].map((entry) => entry.promise));
+      const failedAlias = err?.alias;
+      const inner = err?.err ?? err;
+      if (failedAlias) {
+        const message = inner?.message ?? String(inner);
+        throw new Error(`Node '${failedAlias}' failed in stage '${stageAlias}': ${message}`);
+      }
+      throw inner;
+    }
   }
 
   return stageOutputs;
 }
 
-function assertUniqueAgentAliases(pipeline: PipelineFile) {
-  const seen = new Map<string, string>();
-  for (const stage of pipeline.stages) {
-    for (const agent of stage.agents) {
-      const previousStage = seen.get(agent.alias);
-      if (previousStage) {
+function collectNodeAliases(pipeline: PipelineFile): Map<string, { stageAlias: string; stageIndex: number }> {
+  const seen = new Map<string, { stageAlias: string; stageIndex: number }>();
+  pipeline.stages.forEach((stage, stageIndex) => {
+    for (const node of stage.agents) {
+      const previous = seen.get(node.alias);
+      if (previous) {
         throw new Error(
-          `Agent alias '${agent.alias}' is duplicated in stages '${previousStage}' and '${stage.alias}'. ` +
-            `Agent aliases must be unique across the pipeline.`
+          `Node alias '${node.alias}' is duplicated in stages '${previous.stageAlias}' and '${stage.alias}'. ` +
+            `Node aliases must be unique across the pipeline.`
         );
       }
-      seen.set(agent.alias, stage.alias);
+      seen.set(node.alias, { stageAlias: stage.alias, stageIndex });
     }
-  }
+  });
+  return seen;
 }
 
-function resolveInput(agent: AgentInstance, outputs: Record<string, string>, pipelineInput: string): string | null {
-  if (!agent.input || agent.input === 'stdin') return pipelineInput;
-  if (outputs[agent.input]) return outputs[agent.input];
+function validateNodeReferences(
+  pipeline: PipelineFile,
+  aliasMap: Map<string, { stageAlias: string; stageIndex: number }>
+) {
+  pipeline.stages.forEach((stage, stageIndex) => {
+    for (const node of stage.agents) {
+      if (node.input && node.input !== 'stdin') {
+        const target = aliasMap.get(node.input);
+        if (!target) {
+          throw new Error(`Node '${node.alias}' references unknown input alias '${node.input}'.`);
+        }
+        if (node.input === node.alias) {
+          throw new Error(`Node '${node.alias}' cannot use itself as input.`);
+        }
+        if (target.stageIndex > stageIndex) {
+          throw new Error(
+            `Node '${node.alias}' in stage '${stage.alias}' depends on future input ` +
+              `'${node.input}' from stage '${target.stageAlias}'.`
+          );
+        }
+      }
+
+      for (const dep of node.depends_on ?? []) {
+        const target = aliasMap.get(dep);
+        if (!target) {
+          throw new Error(`Node '${node.alias}' depends_on unknown alias '${dep}'.`);
+        }
+        if (dep === node.alias) {
+          throw new Error(`Node '${node.alias}' cannot depend_on itself.`);
+        }
+        if (target.stageIndex > stageIndex) {
+          throw new Error(
+            `Node '${node.alias}' in stage '${stage.alias}' depends on future alias ` +
+              `'${dep}' from stage '${target.stageAlias}'.`
+          );
+        }
+      }
+    }
+  });
+}
+
+function resolveInput(node: StageNode, outputs: Record<string, string>, pipelineInput: string): string | null {
+  if (!node.input || node.input === 'stdin') return pipelineInput;
+  if (hasOutput(outputs, node.input)) return outputs[node.input];
   return null;
+}
+
+function areDependenciesReady(node: StageNode, outputs: Record<string, string>): boolean {
+  const deps = node.depends_on ?? [];
+  return deps.every((alias) => hasOutput(outputs, alias));
+}
+
+function hasOutput(outputs: Record<string, string>, alias: string): boolean {
+  return Object.prototype.hasOwnProperty.call(outputs, alias);
+}
+
+async function runNode(
+  node: StageNode,
+  stageAlias: string,
+  inputText: string,
+  ctx: AgentExecutionContext,
+  options: ExecutionOptions,
+  signal?: AbortSignal
+): Promise<string> {
+  if (node.kind === 'command') {
+    return runCommand({ ...node, stageAlias }, inputText, ctx, options, { signal });
+  }
+  const agentType = ctx.agentTypes[node.type];
+  if (!agentType) throw new Error(`Agent type '${node.type}' not found for agent '${node.alias}'.`);
+  return runAgent({ ...node, stageAlias }, agentType, inputText, ctx, options, { signal });
 }
 
 async function runCleanups(cleanups: Array<() => Promise<void>>, verbose?: boolean) {

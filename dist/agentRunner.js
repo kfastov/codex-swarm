@@ -1,28 +1,8 @@
 import { execa } from 'execa';
-function renderTemplate(text, ctx) {
-    if (!text)
-        return '';
-    return text.replace(/{{\s*([\w-]+)\s*}}/g, (_, key) => ctx[key] ?? '');
-}
-function formatDirectoryList(agent, ctx) {
-    const dirAliases = agent.directories ?? ctx.agentTypes[agent.type]?.defaultDirectories ?? [];
-    const lines = dirAliases
-        .map((alias) => {
-        const dir = ctx.directoryMap[alias];
-        return dir ? `${alias}: ${dir.path}` : `${alias}: [unresolved]`;
-    })
-        .join('\n');
-    return lines;
-}
-export async function runAgent(agent, agentType, inputText, ctx, options) {
+import { buildDirectoryMap, buildTemplateContext, formatDirectoryList, renderTemplate, resolveNodeCwd, } from './runnerUtils.js';
+export async function runAgent(agent, agentType, inputText, ctx, options, runnerOptions) {
     const directoriesText = formatDirectoryList(agent, ctx);
-    const templateContext = {
-        directories: directoriesText,
-        stdin: ctx.pipelineInput,
-        input: inputText,
-        agent: agent.alias,
-        stage: agent.stageAlias ?? '',
-    };
+    const templateContext = buildTemplateContext(agent, inputText, ctx, directoriesText);
     const prePrompt = renderTemplate(agentType.prePrompt, templateContext).trim();
     const finalInput = renderTemplate(inputText, templateContext).trim();
     const payload = [prePrompt, finalInput].filter(Boolean).join('\n\n');
@@ -37,13 +17,16 @@ export async function runAgent(agent, agentType, inputText, ctx, options) {
         ...agentType.env,
         ...agent.env,
         CODEX_DIRECTORIES: directoriesText,
+        CODEX_DIRECTORY_MAP: JSON.stringify(buildDirectoryMap(agent, ctx)),
         CODEX_AGENT_ALIAS: agent.alias,
     };
+    const cwd = resolveNodeCwd(agent, ctx);
     try {
         const { stdout } = await execa(command, args, {
             input: payload,
             env,
-            cwd: agent.root ? ctx.directoryMap[agent.root]?.path ?? process.cwd() : process.cwd(),
+            cwd,
+            signal: runnerOptions?.signal,
         });
         return stdout;
     }

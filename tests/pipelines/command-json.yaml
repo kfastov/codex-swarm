@@ -1,0 +1,27 @@
+name: command-json-input
+version: "0.1"
+
+directories:
+  repo:
+    alias: repo
+    kind: path
+    path: .
+
+stages:
+  - alias: json
+    agents:
+      - alias: make-json
+        kind: command
+        command: node
+        args:
+          - -e
+          - 'process.stdout.write(JSON.stringify({winner:"work1"}))'
+        root: repo
+        directories: [repo]
+      - alias: consume-json
+        kind: command
+        input: make-json
+        depends_on: [make-json]
+        command: cat
+        root: repo
+        directories: [repo]

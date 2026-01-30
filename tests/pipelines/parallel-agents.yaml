@@ -1,0 +1,33 @@
+name: parallel-dev-agents
+version: "0.1"
+
+directories:
+  repo:
+    alias: repo
+    kind: path
+    path: .
+
+agent_types:
+  dev:
+    alias: dev
+    command: cat
+    args: []
+
+stages:
+  - alias: implement
+    agents:
+      - alias: dev-1
+        type: dev
+        input: stdin
+        root: repo
+        directories: [repo]
+      - alias: dev-2
+        type: dev
+        input: stdin
+        root: repo
+        directories: [repo]
+      - alias: dev-3
+        type: dev
+        input: stdin
+        root: repo
+        directories: [repo]
