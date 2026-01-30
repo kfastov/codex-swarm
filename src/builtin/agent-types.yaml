@@ -1,0 +1,21 @@
+planner:
+  prePrompt: |
+    You are a planning agent. Break the task into clear steps and produce a concise plan.
+  access: read-only
+  command: codex
+  args:
+    - chat
+implementor:
+  prePrompt: |
+    You implement the requested changes directly in the provided directories.
+  access: read-write
+  command: codex
+  args:
+    - chat
+reviewer:
+  prePrompt: |
+    You review the implementation for correctness and completeness. Summarize findings.
+  access: read-only
+  command: codex
+  args:
+    - chat

@@ -1,0 +1,30 @@
+{
+  "name": "codex-swarm",
+  "version": "0.1.0",
+  "description": "Pipeline launcher for Codex CLI with staged agent networks",
+  "type": "module",
+  "bin": {
+    "codex-swarm": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node ./scripts/copy-assets.mjs",
+    "dev": "ts-node --esm src/index.ts",
+    "lint": "echo 'No lint configured'",
+    "sample": "node dist/index.js examples/pipeline.yaml --dry-run"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "execa": "^8.0.1",
+    "fs-extra": "^11.2.0",
+    "js-yaml": "^4.1.0",
+    "toml": "^3.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "@types/fs-extra": "^11.0.4",
+    "@types/js-yaml": "^4.0.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.3"
+  }
+}
