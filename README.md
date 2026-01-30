@@ -34,7 +34,7 @@ Kinds: `temp` (mktemp under `base`), `path` (existing path), `worktree` (git wor
 
 ### Agent types
 - Resolved from layers: built-in `src/builtin/agent-types.yaml` → `~/.codex-swarm/agent-types.{yaml,toml}` → inline `agent_types` in the pipeline file.
-- Fields: `alias`, `prePrompt`, `access` (`read-only`|`read-write`), optional `command`/`args`/`env` defaults.
+- Fields: `alias`, `prePrompt`, `access` (`read-only`|`read-write`), optional `command`/`args`/`env` defaults. Root/directories are set on each agent instance.
 
 ### Stages and agents
 ```yaml
@@ -60,7 +60,7 @@ stages:
         directories: [worktree]
 ```
 - `input`: `stdin` (pipeline input) or another agent alias; wiring resolves per stage until dependencies satisfied.
-- `root`: directory alias to launch from; `directories`: aliases surfaced via template placeholder `{{directories}}` and env `CODEX_DIRECTORIES`.
+- `root`: directory alias to launch from; use `root` to run from pipeline cwd. Alias `root` is reserved and cannot be defined in `directories`. `directories`: aliases surfaced via template placeholder `{{directories}}` and env `CODEX_DIRECTORIES`.
 - Placeholders available in prePrompt/args: `{{stdin}}`, `{{input}}`, `{{directories}}`, `{{agent}}`, `{{stage}}`.
 
 ## CLI

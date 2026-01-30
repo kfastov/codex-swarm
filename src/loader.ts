@@ -47,8 +47,6 @@ const agentTypeSchema: z.ZodType<AgentType> = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string()).optional(),
-  defaultRoot: z.string().optional(),
-  defaultDirectories: z.array(z.string()).optional(),
 });
 
 const agentInstanceSchema: z.ZodType<AgentInstance> = z.object({
@@ -57,7 +55,6 @@ const agentInstanceSchema: z.ZodType<AgentInstance> = z.object({
   input: z.union([z.literal('stdin'), z.string()]).optional(),
   root: z.string().optional(),
   directories: z.array(z.string()).optional(),
-  params: z.record(z.unknown()).optional(),
   env: z.record(z.string()).optional(),
 });
 
@@ -78,10 +75,53 @@ const pipelineSchema: z.ZodType<PipelineFile> = z.object({
   stages: z.array(stageSchema),
 });
 
+function validateDirectoryAliases(
+  directories: Record<string, DirectorySpec | StageDirectoryRef> | undefined,
+  context: string
+) {
+  if (!directories) return;
+  for (const [alias, spec] of Object.entries(directories)) {
+    if (alias === 'root') {
+      throw new Error(`${context}: directory alias 'root' is reserved.`);
+    }
+    if ('from' in spec) {
+      if (spec.from === 'root') {
+        throw new Error(`${context}: directory ref '${alias}' cannot use reserved alias 'root'.`);
+      }
+      continue;
+    }
+    if (spec.alias !== alias) {
+      throw new Error(`${context}: directory key '${alias}' does not match spec.alias '${spec.alias}'.`);
+    }
+    if (spec.alias === 'root') {
+      throw new Error(`${context}: directory alias 'root' is reserved.`);
+    }
+  }
+}
+
+function validatePipeline(pipeline: PipelineFile) {
+  validateDirectoryAliases(pipeline.directories, 'Pipeline directories');
+  for (const stage of pipeline.stages) {
+    validateDirectoryAliases(stage.directories, `Stage '${stage.alias}' directories`);
+    if (!stage.directories) continue;
+    for (const [alias, spec] of Object.entries(stage.directories)) {
+      if ('from' in spec) {
+        const ref = spec.from;
+        if (!pipeline.directories || !pipeline.directories[ref]) {
+          throw new Error(
+            `Stage '${stage.alias}' directory '${alias}' references unknown global alias '${ref}'.`
+          );
+        }
+      }
+    }
+  }
+}
+
 export async function loadPipelineFile(filePath: string): Promise<PipelineFile> {
   const raw = await fs.readFile(filePath, 'utf8');
   const parsed = parseByExtension(raw, filePath);
   const result = pipelineSchema.parse(parsed);
+  validatePipeline(result);
   return result;
 }
 

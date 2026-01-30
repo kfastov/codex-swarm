@@ -1,4 +1,3 @@
-import path from 'path';
 import { execa } from 'execa';
 import { AgentInstance, ResolvedAgentType, AgentExecutionContext, ExecutionOptions } from './types.js';
 
@@ -8,14 +7,31 @@ function renderTemplate(text: string | undefined, ctx: Record<string, string>): 
 }
 
 function formatDirectoryList(agent: AgentInstance, ctx: AgentExecutionContext): string {
-  const dirAliases = agent.directories ?? ctx.agentTypes[agent.type]?.defaultDirectories ?? [];
+  const dirAliases = agent.directories ?? [];
   const lines = dirAliases
     .map((alias) => {
+      if (alias === 'root') {
+        return `${alias}: ${ctx.cwd}`;
+      }
       const dir = ctx.directoryMap[alias];
       return dir ? `${alias}: ${dir.path}` : `${alias}: [unresolved]`;
     })
     .join('\n');
   return lines;
+}
+
+function resolveAgentCwd(
+  agent: AgentInstance & { stageAlias?: string },
+  ctx: AgentExecutionContext,
+  options: ExecutionOptions
+): string {
+  if (!agent.root || agent.root === 'root') return options.cwd;
+  const dir = ctx.directoryMap[agent.root];
+  if (!dir) {
+    const stageInfo = agent.stageAlias ? ` in stage '${agent.stageAlias}'` : '';
+    throw new Error(`Agent '${agent.alias}'${stageInfo} references unknown root alias '${agent.root}'.`);
+  }
+  return dir.path;
 }
 
 export async function runAgent(
@@ -52,12 +68,13 @@ export async function runAgent(
     CODEX_DIRECTORIES: directoriesText,
     CODEX_AGENT_ALIAS: agent.alias,
   };
+  const cwd = resolveAgentCwd(agent, ctx, options);
 
   try {
     const { stdout } = await execa(command, args, {
       input: payload,
       env,
-      cwd: agent.root ? ctx.directoryMap[agent.root]?.path ?? process.cwd() : process.cwd(),
+      cwd,
     });
     return stdout;
   } catch (err: any) {

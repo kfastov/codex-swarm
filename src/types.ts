@@ -34,8 +34,6 @@ export interface AgentType {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  defaultRoot?: string;
-  defaultDirectories?: string[];
 }
 
 export interface AgentInstance {
@@ -44,7 +42,6 @@ export interface AgentInstance {
   input?: 'stdin' | string;
   root?: string;
   directories?: string[];
-  params?: Record<string, unknown>;
   env?: Record<string, string>;
 }
 
@@ -93,6 +90,7 @@ export interface AgentExecutionContext {
   pipelineInput: string;
   directoryMap: Record<string, PreparedDirectory>;
   agentTypes: Record<string, ResolvedAgentType>;
+  cwd: string;
 }
 
 export interface ExecutionOptions {

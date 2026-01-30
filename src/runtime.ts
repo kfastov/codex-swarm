@@ -1,5 +1,3 @@
-import path from 'path';
-import fs from 'fs-extra';
 import { prepareDirectory } from './directories.js';
 import { runAgent } from './agentRunner.js';
 import {
@@ -9,7 +7,6 @@ import {
   DirectorySpec,
   PreparedDirectory,
   ResolvedAgentType,
-  ResolvedAgentInstance,
   AgentInstance,
 } from './types.js';
 
@@ -22,40 +19,57 @@ interface ExecutePipelineOptions extends ExecutionOptions {
 export async function executePipeline(options: ExecutePipelineOptions) {
   const { pipeline, agentTypes, input, cwd } = options;
   const globalDirSpecs = pipeline.directories ?? {};
-  const preparedDirectories: Record<string, PreparedDirectory> = {};
-  const cleanups: Array<() => Promise<void>> = [];
+  const preparedGlobal: Record<string, PreparedDirectory> = {};
+  const globalCleanups: Array<() => Promise<void>> = [];
   const outputs: Record<string, string> = {};
 
   try {
+    assertUniqueAgentAliases(pipeline);
     for (const stage of pipeline.stages) {
       const stageSpecs = stage.directories ?? {};
       const requiredAliases = collectDirectoryAliases(stage.agents);
+      const stagePrepared: Record<string, PreparedDirectory> = {};
+      const stageCleanups: Array<() => Promise<void>> = [];
 
-      for (const alias of requiredAliases) {
-        if (preparedDirectories[alias]) continue;
+      try {
+        for (const alias of requiredAliases) {
+          if (alias === 'root') continue;
 
-        const spec = resolveDirectorySpec(alias, stageSpecs, globalDirSpecs);
-        if (!spec) {
-          throw new Error(`Directory alias '${alias}' required in stage '${stage.alias}' is not defined.`);
+          const resolution = resolveDirectorySpec(alias, stageSpecs, globalDirSpecs);
+          if (!resolution) {
+            throw new Error(`Directory alias '${alias}' required in stage '${stage.alias}' is not defined.`);
+          }
+
+          if (resolution.scope === 'global') {
+            if (preparedGlobal[alias]) continue;
+            const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd });
+            preparedGlobal[alias] = prepared;
+            if (prepared.cleanup) globalCleanups.push(prepared.cleanup);
+          } else {
+            if (stagePrepared[alias]) continue;
+            const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd });
+            stagePrepared[alias] = prepared;
+            if (prepared.cleanup) stageCleanups.push(prepared.cleanup);
+          }
         }
-        const prepared = await prepareDirectory(spec, stage.alias, { cwd });
-        preparedDirectories[alias] = prepared;
-        if (prepared.cleanup) cleanups.push(prepared.cleanup);
-      }
 
-      const stageOutputs = await executeStage(
-        stage.alias,
-        stage.agents,
-        agentTypes,
-        preparedDirectories,
-        outputs,
-        input,
-        options
-      );
-      Object.assign(outputs, stageOutputs);
+        const directoryMap = { ...preparedGlobal, ...stagePrepared };
+        const stageOutputs = await executeStage(
+          stage.alias,
+          stage.agents,
+          agentTypes,
+          directoryMap,
+          outputs,
+          input,
+          options
+        );
+        Object.assign(outputs, stageOutputs);
+      } finally {
+        await runCleanups(stageCleanups, options.verbose);
+      }
     }
   } finally {
-    await runCleanups(cleanups, options.verbose);
+    await runCleanups(globalCleanups, options.verbose);
   }
 
   return outputs;
@@ -65,17 +79,21 @@ function resolveDirectorySpec(
   alias: string,
   stageSpecs: Record<string, DirectorySpec | { from: string }>,
   globalSpecs: Record<string, DirectorySpec>
-): DirectorySpec | undefined {
+): { spec: DirectorySpec; scope: 'stage' | 'global' } | undefined {
   const stageSpec = stageSpecs[alias];
   if (stageSpec) {
     if ('from' in stageSpec) {
       const ref = stageSpec.from;
-      return { ...globalSpecs[ref], alias: alias ?? ref } as DirectorySpec;
+      const baseSpec = globalSpecs[ref];
+      if (!baseSpec) {
+        throw new Error(`Stage directory '${alias}' references unknown global alias '${ref}'.`);
+      }
+      return { spec: { ...baseSpec, alias }, scope: 'stage' };
     }
-    return stageSpec as DirectorySpec;
+    return { spec: stageSpec as DirectorySpec, scope: 'stage' };
   }
   const globalSpec = globalSpecs[alias];
-  if (globalSpec) return globalSpec;
+  if (globalSpec) return { spec: globalSpec, scope: 'global' };
   return undefined;
 }
 
@@ -114,6 +132,7 @@ async function executeStage(
         pipelineInput,
         directoryMap,
         agentTypes,
+        cwd: options.cwd,
       };
       const output = await runAgent({ ...agent, stageAlias }, agentType, resolvedInput, ctx, options);
       stageOutputs[agent.alias] = output;
@@ -132,6 +151,22 @@ async function executeStage(
   }
 
   return stageOutputs;
+}
+
+function assertUniqueAgentAliases(pipeline: PipelineFile) {
+  const seen = new Map<string, string>();
+  for (const stage of pipeline.stages) {
+    for (const agent of stage.agents) {
+      const previousStage = seen.get(agent.alias);
+      if (previousStage) {
+        throw new Error(
+          `Agent alias '${agent.alias}' is duplicated in stages '${previousStage}' and '${stage.alias}'. ` +
+            `Agent aliases must be unique across the pipeline.`
+        );
+      }
+      seen.set(agent.alias, stage.alias);
+    }
+  }
 }
 
 function resolveInput(agent: AgentInstance, outputs: Record<string, string>, pipelineInput: string): string | null {
