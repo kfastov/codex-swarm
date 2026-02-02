@@ -1,5 +1,6 @@
 version: "0.1"
-name: parallel-review-merge
+name: parallel-development
+description: Run three parallel implementors, review all results, and merge the best solution back into the repo.
 
 directories:
   repo:
