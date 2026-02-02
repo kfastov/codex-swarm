@@ -2,11 +2,16 @@
 
 Pipeline launcher for Codex CLI. Provides staged, wired agent execution driven by a YAML/TOML pipeline file. Supports temp dirs, git worktree clones, built-in + user agent types, dry-run, parallel node execution within a stage, and command nodes.
 
-## Install / Run (local checkout)
+## Install
+```bash
+npm install -g @kfastov/codex-swarm
+```
+
+## Run (local checkout)
 ```bash
 npm install
 npm run build
-node dist/index.js examples/pipeline.yaml --dry-run -i "Build me a plan"
+codex-swarm examples/pipeline.yaml --dry-run -i "Build me a plan"
 ```
 
 ## Pipeline file

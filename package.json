@@ -1,8 +1,11 @@
 {
-  "name": "codex-swarm",
+  "name": "@kfastov/codex-swarm",
   "version": "0.1.0",
   "description": "Pipeline launcher for Codex CLI with staged agent networks",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "codex-swarm": "./dist/index.js"
   },
