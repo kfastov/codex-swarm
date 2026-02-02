@@ -5,11 +5,15 @@ import { execa } from 'execa';
 function randomSuffix() {
     return Math.random().toString(36).slice(2, 8);
 }
+function logDirectory(alias, kind, dirPath) {
+    process.stderr.write(`[codex-swarm] directory ${alias} (${kind}) -> ${dirPath}\n`);
+}
 export async function prepareDirectory(spec, stageAlias, options) {
     if (spec.kind === 'temp') {
         const base = spec.base ?? path.join(os.tmpdir(), 'codex-swarm');
         await fs.ensureDir(base);
         const dirPath = await fs.mkdtemp(path.join(base, `${stageAlias}-${spec.alias}-`));
+        logDirectory(spec.alias, spec.kind, dirPath);
         return {
             alias: spec.alias,
             kind: spec.kind,
@@ -24,6 +28,7 @@ export async function prepareDirectory(spec, stageAlias, options) {
         const exists = await fs.pathExists(dirPath);
         if (!exists)
             throw new Error(`Directory path not found for alias ${spec.alias}: ${dirPath}`);
+        logDirectory(spec.alias, spec.kind, dirPath);
         return {
             alias: spec.alias,
             kind: spec.kind,
@@ -39,6 +44,7 @@ export async function prepareDirectory(spec, stageAlias, options) {
         const target = path.join(targetBase, `${stageAlias}-${spec.alias}-${randomSuffix()}`);
         const ref = spec.ref ?? 'HEAD';
         await execa('git', ['worktree', 'add', '--detach', target, ref], { cwd: source });
+        logDirectory(spec.alias, spec.kind, target);
         return {
             alias: spec.alias,
             kind: spec.kind,
