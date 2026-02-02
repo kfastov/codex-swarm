@@ -4,7 +4,7 @@ Pipeline launcher for Codex CLI. Provides staged, wired agent execution driven b
 
 ## Install
 ```bash
-npm install -g @kfastov/codex-swarm
+npm install -g codex-swarm
 ```
 
 ## Run (local checkout)

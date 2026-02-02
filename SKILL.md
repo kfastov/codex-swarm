@@ -7,7 +7,7 @@ description: Orchestrate codex-swarm pipelines for multi-agent development, revi
 
 ## Quick start
 
-- Install the CLI: `npm install -g @kfastov/codex-swarm`.
+- Install the CLI: `npm install -g codex-swarm`.
 - Use the built-in pipeline template at `pipelines/parallel-development/pipeline.yaml` (name: `parallel-development`) or author a new one using `PIPELINE_SCHEMA.md`.
 - Run the pipeline from the repo root so `.` resolves to the repo.
 - Ensure the target repo is a git repo with at least one commit (worktrees require this).
