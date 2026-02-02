@@ -95,6 +95,7 @@ Pipeline resolution order: given path → ./ .codex-swarm/pipelines → ~/.codex
 
 ## Examples
 - `examples/pipeline.yaml`: planner → implementor → reviewer → summarizer, using main/worktree/temp dirs.
+- `examples/parallel-development/pipeline.yaml`: three parallel implementors, reviewer, and merge-winner pipeline.
 
 ## Notes / future
 - MCP exposure not wired yet; CLI foundation in place.

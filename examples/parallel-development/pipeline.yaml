@@ -1,0 +1,118 @@
+version: "0.1"
+name: parallel-review-merge
+
+directories:
+  repo:
+    alias: repo
+    kind: path
+    path: /tmp/codex-swarm-battle
+  work1:
+    alias: work1
+    kind: worktree
+    source: /tmp/codex-swarm-battle
+    ref: main
+  work2:
+    alias: work2
+    kind: worktree
+    source: /tmp/codex-swarm-battle
+    ref: main
+  work3:
+    alias: work3
+    kind: worktree
+    source: /tmp/codex-swarm-battle
+    ref: main
+
+agent_types:
+  dev:
+    alias: dev
+    prePrompt: |
+      You are an implementation agent. Build the requested feature ONLY in the provided directory.
+      Do not modify files outside that directory. Avoid adding dependencies.
+
+      Deliver a simple Snake game that runs by opening index.html in a browser.
+      Requirements:
+      - Single-page HTML/CSS/JS (no build step, no external libraries).
+      - Keyboard controls: arrows or WASD.
+      - Visible score and game over/restart.
+      - Reasonable layout and instructions.
+
+      Accessible dirs:
+      {{directories}}
+
+      At the end, summarize files changed and how to run.
+    command: codex
+    args: [exec, --dangerously-bypass-approvals-and-sandbox]
+
+  reviewer:
+    alias: reviewer
+    prePrompt: |
+      You are the reviewer. Compare the three candidate implementations by inspecting the directories.
+      Pick the best overall solution for the task (quality, completeness, simplicity, no tech debt).
+      Return ONLY JSON:
+      {"winner":"work1|work2|work3","reason":"..."}
+
+      Accessible dirs:
+      {{directories}}
+    command: codex
+    args: [exec, --dangerously-bypass-approvals-and-sandbox]
+
+stages:
+  - alias: implement
+    agents:
+      - alias: dev-1
+        type: dev
+        input: stdin
+        root: work1
+        directories: [work1]
+      - alias: dev-2
+        type: dev
+        input: stdin
+        root: work2
+        directories: [work2]
+      - alias: dev-3
+        type: dev
+        input: stdin
+        root: work3
+        directories: [work3]
+
+  - alias: review
+    agents:
+      - alias: reviewer-1
+        type: reviewer
+        input: stdin
+        depends_on: [dev-1, dev-2, dev-3]
+        root: repo
+        directories: [repo, work1, work2, work3]
+
+  - alias: sanitize
+    agents:
+      - alias: normalize-review
+        kind: command
+        input: reviewer-1
+        depends_on: [reviewer-1]
+        command: node
+        args:
+          - -e
+          - |
+            const fs = require('fs');
+            const input = fs.readFileSync(0, 'utf8');
+            const matches = [...input.matchAll(/\{[\s\S]*?\}/g)];
+            let last;
+            for (const m of matches) {
+              try { last = JSON.parse(m[0]); } catch {}
+            }
+            if (!last) { throw new Error('No JSON object found in reviewer output.'); }
+            process.stdout.write(JSON.stringify(last));
+        root: root
+        directories: [repo, work1, work2, work3]
+
+  - alias: merge
+    agents:
+      - alias: merge-winner
+        kind: command
+        command: node
+        args: [../scripts/merge-best.mjs]
+        input: normalize-review
+        depends_on: [normalize-review]
+        root: root
+        directories: [repo, work1, work2, work3]
