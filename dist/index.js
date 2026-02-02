@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import fs from 'fs-extra';
+import os from 'os';
 import path from 'path';
 import { loadPipelineFile, loadAgentTypeLayers, mergeAgentTypes } from './loader.js';
 import { executePipeline } from './runtime.js';
@@ -26,35 +27,50 @@ async function loadAgentTypes(pipeline) {
     return mergeAgentTypes(base, pipeline.agent_types);
 }
 async function resolvePipelinePath(pipelineArg) {
+    const name = pipelineArg.trim();
+    if (!name) {
+        throw new Error('Pipeline name is required.');
+    }
+    if (path.isAbsolute(name) || name.includes('/') || name.includes('\\')) {
+        throw new Error('Pipeline must be referenced by name only (no paths).');
+    }
+    const allowedExts = new Set(['.yaml', '.yml', '.toml']);
+    const ext = path.extname(name);
+    if (ext && !allowedExts.has(ext)) {
+        throw new Error(`Unsupported pipeline extension: ${ext}`);
+    }
+    const baseName = ext ? name.slice(0, -ext.length) : name;
+    const exts = ext ? [ext] : ['.yaml', '.yml', '.toml'];
     const candidates = [];
-    const ext = path.extname(pipelineArg);
-    const withExtensions = ext
-        ? [pipelineArg]
-        : [`${pipelineArg}.yaml`, `${pipelineArg}.yml`, `${pipelineArg}.toml`];
+    for (const candidateExt of exts) {
+        candidates.push(`${baseName}${candidateExt}`);
+        candidates.push(path.join(baseName, `pipeline${candidateExt}`));
+    }
     const cwd = process.cwd();
-    const home = process.env.HOME ?? '';
+    const home = os.homedir();
     const moduleRoot = path.resolve(new URL('.', import.meta.url).pathname, '.');
-    for (const name of withExtensions) {
-        candidates.push(path.isAbsolute(name) ? name : path.resolve(cwd, name));
-        candidates.push(path.join(cwd, '.codex-swarm', 'pipelines', name));
-        if (home) {
-            candidates.push(path.join(home, '.codex-swarm', 'pipelines', name));
-            candidates.push(path.join(home, '.codex-swarm', name));
+    const roots = [
+        path.join(cwd, '.codex-swarm', 'pipelines'),
+        home ? path.join(home, '.codex-swarm', 'pipelines') : null,
+        path.join(moduleRoot, 'pipelines'),
+    ].filter(Boolean);
+    const tried = [];
+    for (const root of roots) {
+        for (const candidate of candidates) {
+            const full = path.join(root, candidate);
+            tried.push(full);
+            if (await fs.pathExists(full))
+                return full;
         }
-        candidates.push(path.join(moduleRoot, 'examples', name)); // packaged examples
     }
-    for (const candidate of candidates) {
-        if (await fs.pathExists(candidate))
-            return candidate;
-    }
-    throw new Error(`Pipeline file not found. Tried: ${candidates.join(', ')}`);
+    throw new Error(`Pipeline not found. Tried: ${tried.join(', ')}`);
 }
 async function main() {
     const program = new Command();
     program
         .name('codex-swarm')
         .description('Pipeline launcher for Codex CLI')
-        .argument('<pipeline>', 'Pipeline definition file (YAML or TOML)')
+        .argument('<pipeline>', 'Pipeline name')
         .option('-i, --input <text>', 'Pipeline input text (overrides stdin)')
         .option('--input-file <path>', 'Read pipeline input from file')
         .option('--codex-bin <path>', 'Path to codex CLI binary', 'codex')

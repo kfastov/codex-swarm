@@ -11,6 +11,13 @@ Use this when authoring new pipelines.
 - `agent_types`: map of agent type aliases to agent type specs.
 - `stages`: ordered list of stages; each stage has `alias` + `agents`.
 
+## Pipeline names
+
+CLI accepts pipeline names (no paths). Resolution order:
+1) `./.codex-swarm/pipelines`
+2) `~/.codex-swarm/pipelines`
+3) packaged `pipelines/`
+
 ## directories
 
 Each entry is a directory alias (used by `root`/`directories` on agents).
@@ -75,4 +82,4 @@ Environment:
 
 ## Available pipelines
 
-- `examples/parallel-development/pipeline.yaml`: best-of-3 parallel implementations + reviewer + merge winner. Use when a client wants best-of-N with automatic review and deterministic merge.
+- `pipelines/parallel-development/pipeline.yaml` (name: `parallel-development`): best-of-3 parallel implementations + reviewer + merge winner. Use when a client wants best-of-N with automatic review and deterministic merge.

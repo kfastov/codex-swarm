@@ -13,8 +13,8 @@
     "build": "tsc -p tsconfig.json && node ./scripts/copy-assets.mjs",
     "dev": "ts-node --esm src/index.ts",
     "lint": "echo 'No lint configured'",
-    "sample": "node dist/index.js examples/pipeline.yaml --dry-run",
-    "smoke": "npm run build && node dist/index.js tests/pipelines/command-json.yaml"
+    "sample": "node dist/index.js parallel-development --dry-run",
+    "smoke": "npm run build && node -e \"const fs=require('fs');const os=require('os');const path=require('path');const {execFileSync}=require('child_process');const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'codex-swarm-'));const pipelines=path.join(tmp,'.codex-swarm','pipelines');fs.mkdirSync(pipelines,{recursive:true});fs.copyFileSync('tests/pipelines/command-json.yaml', path.join(pipelines,'command-json.yaml'));const bin=path.resolve('dist/index.js');execFileSync(process.execPath,[bin,'command-json'],{cwd:tmp,stdio:'inherit'});\""
   },
   "dependencies": {
     "commander": "^11.1.0",

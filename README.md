@@ -11,7 +11,7 @@ npm install -g @kfastov/codex-swarm
 ```bash
 npm install
 npm run build
-codex-swarm examples/pipeline.yaml --dry-run -i "Build me a plan"
+codex-swarm parallel-development --dry-run -i "Build me a plan"
 ```
 
 ## Pipeline file
@@ -89,18 +89,18 @@ stages:
 
 ## CLI
 ```
-codex-swarm <pipeline> [options]
+codex-swarm <pipeline-name> [options]
   -i, --input <text>      Inline pipeline input (else stdin)
   --input-file <path>     Read input from file
   --codex-bin <path>      Codex CLI binary (default: codex)
   --dry-run               Print actions without spawning agents
   --verbose               Extra logs
 ```
-Pipeline resolution order: given path → ./ .codex-swarm/pipelines → ~/.codex-swarm/pipelines → ~/.codex-swarm → packaged `examples/`.
+Pipeline names must be provided without paths.
+Pipeline resolution order: `./.codex-swarm/pipelines` → `~/.codex-swarm/pipelines` → packaged `pipelines/`.
 
-## Examples
-- `examples/pipeline.yaml`: planner → implementor → reviewer → summarizer, using main/worktree/temp dirs.
-- `examples/parallel-development/pipeline.yaml`: three parallel implementors, reviewer, and merge-winner pipeline.
+## Pipelines
+- `pipelines/parallel-development/pipeline.yaml` (`parallel-development`): three parallel implementors, reviewer, and merge-winner pipeline.
 
 ## Notes / future
 - MCP exposure not wired yet; CLI foundation in place.
