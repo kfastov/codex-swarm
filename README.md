@@ -96,6 +96,7 @@ codex-swarm <pipeline-name> [options]
   --codex-bin <path>      Codex CLI binary (default: codex)
   --dry-run               Print actions without spawning agents
   --verbose               Extra logs
+  --list-pipelines        List available pipelines and exit
 ```
 Pipeline names must be provided without paths.
 Pipeline resolution order: `./.codex-swarm/pipelines` → `~/.codex-swarm/pipelines` → packaged `pipelines/`.

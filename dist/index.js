@@ -26,6 +26,20 @@ async function loadAgentTypes(pipeline) {
     const base = await loadAgentTypeLayers();
     return mergeAgentTypes(base, pipeline.agent_types);
 }
+const PIPELINE_EXTS = ['.yaml', '.yml', '.toml'];
+function isPipelineExt(ext) {
+    return PIPELINE_EXTS.includes(ext);
+}
+function getPipelineRoots() {
+    const cwd = process.cwd();
+    const home = os.homedir();
+    const moduleRoot = path.resolve(new URL('.', import.meta.url).pathname, '.');
+    return {
+        local: path.join(cwd, '.codex-swarm', 'pipelines'),
+        global: home ? path.join(home, '.codex-swarm', 'pipelines') : '',
+        packaged: path.join(moduleRoot, 'pipelines'),
+    };
+}
 async function resolvePipelinePath(pipelineArg) {
     const name = pipelineArg.trim();
     if (!name) {
@@ -34,26 +48,19 @@ async function resolvePipelinePath(pipelineArg) {
     if (path.isAbsolute(name) || name.includes('/') || name.includes('\\')) {
         throw new Error('Pipeline must be referenced by name only (no paths).');
     }
-    const allowedExts = new Set(['.yaml', '.yml', '.toml']);
+    const allowedExts = new Set(PIPELINE_EXTS);
     const ext = path.extname(name);
     if (ext && !allowedExts.has(ext)) {
         throw new Error(`Unsupported pipeline extension: ${ext}`);
     }
     const baseName = ext ? name.slice(0, -ext.length) : name;
-    const exts = ext ? [ext] : ['.yaml', '.yml', '.toml'];
+    const exts = ext ? [ext] : [...PIPELINE_EXTS];
     const candidates = [];
     for (const candidateExt of exts) {
         candidates.push(`${baseName}${candidateExt}`);
         candidates.push(path.join(baseName, `pipeline${candidateExt}`));
     }
-    const cwd = process.cwd();
-    const home = os.homedir();
-    const moduleRoot = path.resolve(new URL('.', import.meta.url).pathname, '.');
-    const roots = [
-        path.join(cwd, '.codex-swarm', 'pipelines'),
-        home ? path.join(home, '.codex-swarm', 'pipelines') : null,
-        path.join(moduleRoot, 'pipelines'),
-    ].filter(Boolean);
+    const roots = Object.values(getPipelineRoots()).filter(Boolean);
     const tried = [];
     for (const root of roots) {
         for (const candidate of candidates) {
@@ -65,18 +72,100 @@ async function resolvePipelinePath(pipelineArg) {
     }
     throw new Error(`Pipeline not found. Tried: ${tried.join(', ')}`);
 }
+async function readPipelineListing(filePath, fallbackName) {
+    try {
+        const pipeline = await loadPipelineFile(filePath);
+        return {
+            name: fallbackName,
+            description: pipeline.description ?? pipeline.name ?? '',
+        };
+    }
+    catch {
+        return { name: fallbackName, description: '(invalid pipeline file)' };
+    }
+}
+async function listPipelinesInRoot(root) {
+    if (!root || !(await fs.pathExists(root)))
+        return [];
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const seen = new Set();
+    const results = [];
+    for (const entry of entries) {
+        if (entry.isFile()) {
+            const ext = path.extname(entry.name);
+            if (!isPipelineExt(ext))
+                continue;
+            const name = path.basename(entry.name, ext);
+            if (seen.has(name))
+                continue;
+            const filePath = path.join(root, entry.name);
+            results.push(await readPipelineListing(filePath, name));
+            seen.add(name);
+        }
+    }
+    for (const entry of entries) {
+        if (!entry.isDirectory())
+            continue;
+        const dirName = entry.name;
+        if (seen.has(dirName))
+            continue;
+        for (const ext of PIPELINE_EXTS) {
+            const filePath = path.join(root, dirName, `pipeline${ext}`);
+            if (await fs.pathExists(filePath)) {
+                results.push(await readPipelineListing(filePath, dirName));
+                seen.add(dirName);
+                break;
+            }
+        }
+    }
+    return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+function printPipelineSection(label, root, items) {
+    if (!items.length)
+        return;
+    const maxName = Math.max(...items.map((item) => item.name.length));
+    console.log(`${label} (${root}):`);
+    for (const item of items) {
+        const spacer = ' '.repeat(Math.max(1, maxName - item.name.length + 2));
+        const desc = item.description ?? '';
+        console.log(`  ${item.name}${spacer}${desc}`.trimEnd());
+    }
+}
+async function listPipelines() {
+    const roots = getPipelineRoots();
+    const local = await listPipelinesInRoot(roots.local);
+    const global = roots.global ? await listPipelinesInRoot(roots.global) : [];
+    const packaged = await listPipelinesInRoot(roots.packaged);
+    if (!local.length && !global.length && !packaged.length) {
+        console.log('No pipelines found.');
+        return false;
+    }
+    printPipelineSection('local', './.codex-swarm/pipelines', local);
+    printPipelineSection('global', roots.global, global);
+    printPipelineSection('packaged', roots.packaged, packaged);
+    return true;
+}
 async function main() {
     const program = new Command();
     program
         .name('codex-swarm')
         .description('Pipeline launcher for Codex CLI')
-        .argument('<pipeline>', 'Pipeline name')
+        .argument('[pipeline]', 'Pipeline name')
         .option('-i, --input <text>', 'Pipeline input text (overrides stdin)')
         .option('--input-file <path>', 'Read pipeline input from file')
         .option('--codex-bin <path>', 'Path to codex CLI binary', 'codex')
         .option('--dry-run', 'Show actions without spawning agents', false)
         .option('--verbose', 'Verbose logging', false)
+        .option('--list-pipelines', 'List available pipelines', false)
         .action(async (pipelinePath, opts) => {
+        if (opts.listPipelines) {
+            await listPipelines();
+            return;
+        }
+        if (!pipelinePath) {
+            program.outputHelp();
+            return;
+        }
         const absPipelinePath = await resolvePipelinePath(pipelinePath);
         const pipeline = await loadPipelineFile(absPipelinePath);
         const input = await readInput({ input: opts.input, inputFile: opts.inputFile });
