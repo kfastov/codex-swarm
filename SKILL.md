@@ -1,0 +1,48 @@
+---
+name: codex-swarm-parallel-dev
+description: Run codex-swarm pipelines to delegate development tasks to parallel implementor agents, then review and merge the best solution. Use when the user asks to spin up multiple parallel implementations, compare them, and merge the winner into a target repo via codex-swarm.
+---
+
+# Codex-Swarm Parallel Development
+
+## Quick start
+
+- Use the built-in pipeline template at `examples/parallel-development/pipeline.yaml`.
+- Run the pipeline from the repo root so `.` resolves to the repo.
+- Ensure the target repo is a git repo with at least one commit (worktrees require this).
+
+## Workflow
+
+1) Ensure the repo is ready for worktrees:
+
+```bash
+git status -sb
+git rev-parse HEAD
+```
+
+If there is no commit yet, create one before proceeding.
+
+2) Run the pipeline with logging:
+
+```bash
+mkdir -p /tmp/codex-swarm-logs
+node dist/index.js examples/parallel-development/pipeline.yaml \
+  --verbose \
+  -i "<task description>" \
+  > /tmp/codex-swarm-logs/run.out \
+  2> /tmp/codex-swarm-logs/run.err
+```
+
+3) Inspect outputs:
+- `run.out` contains the JSON outputs of each node (dev-1/2/3, reviewer-1, merge-winner).
+- `run.err` contains the stage completion logs and any errors.
+
+4) Validate the result in the repo:
+- `git status -sb`
+- Open or run the output as appropriate for the task.
+
+## Notes
+
+- Use `codex exec` in pipelines (already configured) to avoid TTY issues from `codex chat`.
+- The merge step wipes the repo contents except `.git`. Keep logs outside the repo and use version control/branches as needed.
+- Worktrees are created under your temp directory and may need manual cleanup if runs are interrupted.

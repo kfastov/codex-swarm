@@ -5,21 +5,21 @@ directories:
   repo:
     alias: repo
     kind: path
-    path: /tmp/codex-swarm-battle
+    path: .
   work1:
     alias: work1
     kind: worktree
-    source: /tmp/codex-swarm-battle
+    source: .
     ref: main
   work2:
     alias: work2
     kind: worktree
-    source: /tmp/codex-swarm-battle
+    source: .
     ref: main
   work3:
     alias: work3
     kind: worktree
-    source: /tmp/codex-swarm-battle
+    source: .
     ref: main
 
 agent_types:
