@@ -2,6 +2,18 @@
   "name": "codex-swarm",
   "version": "0.1.0",
   "description": "Pipeline launcher for Codex CLI with staged agent networks",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "orchestrator",
+    "ai",
+    "agent",
+    "skill",
+    "orchestration",
+    "agentic",
+    "multi-agent",
+    "automation"
+  ],
   "type": "module",
   "bin": {
     "codex-swarm": "./dist/index.js"

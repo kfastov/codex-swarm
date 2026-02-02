@@ -1,6 +1,7 @@
 # codex-swarm
 
 Pipeline launcher for Codex CLI. Provides staged, wired agent execution driven by a YAML/TOML pipeline file. Supports temp dirs, git worktree clones, built-in + user agent types, dry-run, parallel node execution within a stage, and command nodes.
+Not affiliated with OpenAI.
 
 ## Install
 ```bash
