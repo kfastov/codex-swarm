@@ -1,6 +1,6 @@
 {
   "name": "codex-swarm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pipeline launcher for Codex CLI with staged agent networks",
   "license": "MIT",
   "keywords": [
