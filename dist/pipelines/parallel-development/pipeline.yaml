@@ -111,7 +111,7 @@ stages:
       - alias: merge-winner
         kind: command
         command: node
-        args: [../scripts/merge-best.mjs]
+        args: [../../scripts/merge-best.mjs]
         input: normalize-review
         depends_on: [normalize-review]
         root: root
