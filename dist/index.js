@@ -178,6 +178,7 @@ async function main() {
             agentTypes,
             input,
             cwd: path.dirname(absPipelinePath),
+            workspaceCwd: process.cwd(),
             dryRun: opts.dryRun,
             codexBin: opts.codexBin,
             verbose: opts.verbose,

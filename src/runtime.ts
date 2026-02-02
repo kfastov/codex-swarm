@@ -19,6 +19,7 @@ interface ExecutePipelineOptions extends ExecutionOptions {
 
 export async function executePipeline(options: ExecutePipelineOptions) {
   const { pipeline, agentTypes, input, cwd } = options;
+  const workspaceCwd = options.workspaceCwd ?? cwd;
   const globalDirSpecs = pipeline.directories ?? {};
   const preparedGlobal: Record<string, PreparedDirectory> = {};
   const globalCleanups: Array<() => Promise<void>> = [];
@@ -27,7 +28,11 @@ export async function executePipeline(options: ExecutePipelineOptions) {
   try {
     const aliasMap = collectNodeAliases(pipeline);
     validateNodeReferences(pipeline, aliasMap);
-    for (const stage of pipeline.stages) {
+    const totalStages = pipeline.stages.length;
+    for (const [stageIndex, stage] of pipeline.stages.entries()) {
+      process.stderr.write(
+        `[codex-swarm] stage ${stage.alias} start (${stageIndex + 1}/${totalStages})\n`
+      );
       const stageSpecs = stage.directories ?? {};
       const requiredAliases = collectDirectoryAliases(stage.agents);
       const stagePrepared: Record<string, PreparedDirectory> = {};
@@ -44,12 +49,12 @@ export async function executePipeline(options: ExecutePipelineOptions) {
 
           if (resolution.scope === 'global') {
             if (preparedGlobal[alias]) continue;
-            const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd });
+            const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd: workspaceCwd });
             preparedGlobal[alias] = prepared;
             if (prepared.cleanup) globalCleanups.push(prepared.cleanup);
           } else {
             if (stagePrepared[alias]) continue;
-            const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd });
+            const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd: workspaceCwd });
             stagePrepared[alias] = prepared;
             if (prepared.cleanup) stageCleanups.push(prepared.cleanup);
           }
@@ -66,6 +71,7 @@ export async function executePipeline(options: ExecutePipelineOptions) {
           options
         );
         Object.assign(outputs, stageOutputs);
+        process.stderr.write(`[codex-swarm] stage ${stage.alias} complete\n`);
       } finally {
         await runCleanups(stageCleanups, options.verbose);
       }
@@ -138,6 +144,10 @@ async function executeStage(
       if (!areDependenciesReady(node, outputsSnapshot)) continue;
 
       const controller = new AbortController();
+      const nodeKind = node.kind === 'command' ? 'command' : 'agent';
+      process.stderr.write(
+        `[codex-swarm] ${nodeKind} ${alias} start (stage ${stageAlias})\n`
+      );
       const runPromise = runNode(node, stageAlias, resolvedInput, ctx, options, controller.signal)
         .then((output) => ({ alias, output }))
         .catch((err) => {
@@ -158,9 +168,11 @@ async function executeStage(
       const { alias, output } = await Promise.race([...running.values()].map((entry) => entry.promise));
       running.delete(alias);
       stageOutputs[alias] = output;
-      if (options.verbose) {
-        console.error(`[codex-swarm] completed node ${alias}`);
-      }
+      const finished = nodes.find((node) => node.alias === alias);
+      const nodeKind = finished?.kind === 'command' ? 'command' : 'agent';
+      process.stderr.write(
+        `[codex-swarm] ${nodeKind} ${alias} complete (stage ${stageAlias})\n`
+      );
     } catch (err: any) {
       for (const entry of running.values()) {
         entry.controller.abort();

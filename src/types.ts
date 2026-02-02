@@ -113,6 +113,7 @@ export interface AgentExecutionContext {
 export interface ExecutionOptions {
   dryRun?: boolean;
   cwd: string;
+  workspaceCwd?: string;
   codexBin?: string;
   verbose?: boolean;
 }

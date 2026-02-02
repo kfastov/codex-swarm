@@ -3,6 +3,7 @@ import { runAgent } from './agentRunner.js';
 import { runCommand } from './commandRunner.js';
 export async function executePipeline(options) {
     const { pipeline, agentTypes, input, cwd } = options;
+    const workspaceCwd = options.workspaceCwd ?? cwd;
     const globalDirSpecs = pipeline.directories ?? {};
     const preparedGlobal = {};
     const globalCleanups = [];
@@ -10,7 +11,9 @@ export async function executePipeline(options) {
     try {
         const aliasMap = collectNodeAliases(pipeline);
         validateNodeReferences(pipeline, aliasMap);
-        for (const stage of pipeline.stages) {
+        const totalStages = pipeline.stages.length;
+        for (const [stageIndex, stage] of pipeline.stages.entries()) {
+            process.stderr.write(`[codex-swarm] stage ${stage.alias} start (${stageIndex + 1}/${totalStages})\n`);
             const stageSpecs = stage.directories ?? {};
             const requiredAliases = collectDirectoryAliases(stage.agents);
             const stagePrepared = {};
@@ -26,7 +29,7 @@ export async function executePipeline(options) {
                     if (resolution.scope === 'global') {
                         if (preparedGlobal[alias])
                             continue;
-                        const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd });
+                        const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd: workspaceCwd });
                         preparedGlobal[alias] = prepared;
                         if (prepared.cleanup)
                             globalCleanups.push(prepared.cleanup);
@@ -34,7 +37,7 @@ export async function executePipeline(options) {
                     else {
                         if (stagePrepared[alias])
                             continue;
-                        const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd });
+                        const prepared = await prepareDirectory(resolution.spec, stage.alias, { cwd: workspaceCwd });
                         stagePrepared[alias] = prepared;
                         if (prepared.cleanup)
                             stageCleanups.push(prepared.cleanup);
@@ -43,6 +46,7 @@ export async function executePipeline(options) {
                 const directoryMap = { ...preparedGlobal, ...stagePrepared };
                 const stageOutputs = await executeStage(stage.alias, stage.agents, agentTypes, directoryMap, outputs, input, options);
                 Object.assign(outputs, stageOutputs);
+                process.stderr.write(`[codex-swarm] stage ${stage.alias} complete\n`);
             }
             finally {
                 await runCleanups(stageCleanups, options.verbose);
@@ -100,6 +104,8 @@ async function executeStage(stageAlias, nodes, agentTypes, directoryMap, outputs
             if (!areDependenciesReady(node, outputsSnapshot))
                 continue;
             const controller = new AbortController();
+            const nodeKind = node.kind === 'command' ? 'command' : 'agent';
+            process.stderr.write(`[codex-swarm] ${nodeKind} ${alias} start (stage ${stageAlias})\n`);
             const runPromise = runNode(node, stageAlias, resolvedInput, ctx, options, controller.signal)
                 .then((output) => ({ alias, output }))
                 .catch((err) => {
@@ -116,9 +122,9 @@ async function executeStage(stageAlias, nodes, agentTypes, directoryMap, outputs
             const { alias, output } = await Promise.race([...running.values()].map((entry) => entry.promise));
             running.delete(alias);
             stageOutputs[alias] = output;
-            if (options.verbose) {
-                console.error(`[codex-swarm] completed node ${alias}`);
-            }
+            const finished = nodes.find((node) => node.alias === alias);
+            const nodeKind = finished?.kind === 'command' ? 'command' : 'agent';
+            process.stderr.write(`[codex-swarm] ${nodeKind} ${alias} complete (stage ${stageAlias})\n`);
         }
         catch (err) {
             for (const entry of running.values()) {
